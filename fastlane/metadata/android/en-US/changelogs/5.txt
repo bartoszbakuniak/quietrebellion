@@ -1,0 +1,5 @@
+New in 0.5:
+- Auto-Reconnect after unexpected Bluetooth disconnects.
+- Conservative retry strategy: one quick retry (~2s) and one delayed retry (~10s).
+- No auto-reconnect after intentional disconnect actions (Power Off / Pairing Mode).
+
