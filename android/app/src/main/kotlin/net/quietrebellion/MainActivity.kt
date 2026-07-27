@@ -37,6 +37,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.quietrebellion.databinding.ActivityMainBinding
+import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
@@ -98,6 +99,9 @@ class MainActivity : AppCompatActivity() {
 
     // ── Permission launcher ───────────────────────────────────────────────────
     private var pollJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var autoReconnectSuppressed = false
+    private var autoReconnectTriggeredForDrop = false
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
@@ -124,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         pollJob?.cancel(); pollJob = null
+        reconnectJob?.cancel(); reconnectJob = null
         boseService?.clientBound = false
         // Unbind but keep service running in background
         try { unbindService(serviceConn) } catch (_: Exception) {}
@@ -341,7 +346,8 @@ class MainActivity : AppCompatActivity() {
                 BoseConnection(BluetoothTransport.connectDirect(device))
             } catch (e: Exception) {
                 Log.e("BoseCtl", "Connect failed: ${e::class.simpleName}: ${e.message}", e)
-                setStatus(getString(R.string.str_error_msg, e.message ?: "")); return@launch
+                scheduleConservativeReconnect(e)
+                setStatus(getString(R.string.str_error_msg, userFacingErrorMessage(e))); return@launch
             }
             try {
                 Log.d("BoseCtl", "Socket connected to ${device.name}")
@@ -353,7 +359,9 @@ class MainActivity : AppCompatActivity() {
                 // service never adopted the connection → close it to avoid socket leak
                 connection.close()
                 Log.e("BoseCtl", "Initial fetch failed: ${e::class.simpleName}: ${e.message}", e)
-                setStatus(getString(R.string.str_error_msg, e.message ?: ""))
+                if (isDisconnectedError(e)) boseService?.detach()
+                scheduleConservativeReconnect(e)
+                setStatus(getString(R.string.str_error_msg, userFacingErrorMessage(e)))
             }
         }
     }
@@ -381,6 +389,8 @@ class MainActivity : AppCompatActivity() {
             b.tvBattery.text  = getString(R.string.str_battery, battery, chargingIcon)
             b.tvFirmware.text = if (firmware.isNotEmpty()) getString(R.string.str_firmware, firmware) else ""
             setStatus(getString(R.string.str_connected))
+                autoReconnectTriggeredForDrop = false
+                autoReconnectSuppressed = false
 
             try {
                 val (_, mac) = c.source()
@@ -398,7 +408,9 @@ class MainActivity : AppCompatActivity() {
 
             updateUi()
         } catch (e: Exception) {
-            setStatus(getString(R.string.str_fetch_error, e.message ?: ""))
+            if (isDisconnectedError(e)) boseService?.detach()
+            scheduleConservativeReconnect(e)
+            setStatus(getString(R.string.str_fetch_error, userFacingErrorMessage(e)))
         }
     }
 
@@ -525,7 +537,12 @@ class MainActivity : AppCompatActivity() {
     // ── Wire UI listeners ─────────────────────────────────────────────────────
 
     private fun wireListeners() {
-        b.btnReconnect.setOnClickListener { ensurePermissionsThenConnect() }
+        b.btnReconnect.setOnClickListener {
+            reconnectJob?.cancel(); reconnectJob = null
+            autoReconnectSuppressed = false
+            autoReconnectTriggeredForDrop = false
+            ensurePermissionsThenConnect()
+        }
 
         b.toolbar.setOnMenuItemClickListener { item ->
             if (item.itemId == R.id.action_settings) { showSettingsDialog(); true } else false
@@ -640,6 +657,9 @@ class MainActivity : AppCompatActivity() {
                 .setTitle(getString(R.string.str_power_off_title))
                 .setMessage(getString(R.string.str_power_off_message, b.tvDeviceName.text))
                 .setPositiveButton(getString(R.string.str_power_off_confirm_btn)) { _, _ ->
+                    autoReconnectSuppressed = true
+                    reconnectJob?.cancel(); reconnectJob = null
+                    autoReconnectTriggeredForDrop = false
                     sendCmd { conn!!.powerOff() }
                 }
                 .setNegativeButton(getString(R.string.str_cancel), null)
@@ -663,6 +683,9 @@ class MainActivity : AppCompatActivity() {
                 .setTitle(getString(R.string.str_pairing_mode_title))
                 .setMessage(getString(R.string.str_pairing_mode_message))
                 .setPositiveButton(getString(R.string.str_enter_pairing_btn)) { _, _ ->
+                    autoReconnectSuppressed = true
+                    reconnectJob?.cancel(); reconnectJob = null
+                    autoReconnectTriggeredForDrop = false
                     sendCmd { conn!!.enterPairingMode() }
                 }
                 .setNegativeButton(getString(R.string.str_cancel), null)
@@ -672,6 +695,57 @@ class MainActivity : AppCompatActivity() {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private fun isDisconnectedError(error: Throwable): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            val msg = current.message?.lowercase().orEmpty()
+            if (current is IOException) return true
+            if (
+                "broken pipe" in msg ||
+                "connection reset" in msg ||
+                "socket closed" in msg ||
+                "not connected" in msg
+            ) return true
+            current = current.cause
+        }
+        return false
+    }
+
+    private fun userFacingErrorMessage(error: Throwable): String {
+        if (isDisconnectedError(error)) return getString(R.string.str_connection_lost)
+        return error.message?.takeIf { it.isNotBlank() } ?: getString(R.string.str_unknown_error)
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun scheduleConservativeReconnect(error: Throwable) {
+        if (!isDisconnectedError(error)) return
+        if (autoReconnectSuppressed || autoReconnectTriggeredForDrop) return
+
+        val adapter = btAdapter ?: return
+        val lastMac = getSharedPreferences("prefs", MODE_PRIVATE).getString("last_mac", null) ?: return
+        val device = try {
+            DeviceDiscovery.bondedDevices(adapter).firstOrNull { it.address == lastMac }
+        } catch (_: SecurityException) {
+            null
+        } ?: return
+
+        autoReconnectTriggeredForDrop = true
+        reconnectJob?.cancel()
+        reconnectJob = lifecycleScope.launch {
+            val retryDelaysMs = longArrayOf(2_000L, 10_000L)
+            for (delayMs in retryDelaysMs) {
+                delay(delayMs)
+                if (conn != null) {
+                    autoReconnectTriggeredForDrop = false
+                    return@launch
+                }
+                val name = device.name ?: device.address
+                setStatus(getString(R.string.str_reconnecting_to, name))
+                connectTo(device)
+            }
+        }
+    }
+
     /** Run a suspending BMAP command, then immediately refresh UI from device. */
     private fun sendCmd(block: suspend () -> Unit) {
         if (conn == null) { Toast.makeText(this, getString(R.string.notif_title_disconnected), Toast.LENGTH_SHORT).show(); return }
@@ -680,7 +754,9 @@ class MainActivity : AppCompatActivity() {
                 block()
                 fetchAndRefresh()
             } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, e.message ?: "Error", Toast.LENGTH_SHORT).show()
+                if (isDisconnectedError(e)) boseService?.detach()
+                scheduleConservativeReconnect(e)
+                Toast.makeText(this@MainActivity, userFacingErrorMessage(e), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -694,7 +770,9 @@ class MainActivity : AppCompatActivity() {
         if (conn == null) { Toast.makeText(this, getString(R.string.notif_title_disconnected), Toast.LENGTH_SHORT).show(); return }
         lifecycleScope.launch {
             try { block() } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, e.message ?: "Error", Toast.LENGTH_SHORT).show()
+                if (isDisconnectedError(e)) boseService?.detach()
+                scheduleConservativeReconnect(e)
+                Toast.makeText(this@MainActivity, userFacingErrorMessage(e), Toast.LENGTH_SHORT).show()
             }
         }
     }

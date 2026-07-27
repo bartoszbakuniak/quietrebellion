@@ -20,9 +20,12 @@
     <string name="str_bt_not_available">Bluetooth not available</string>
     <string name="str_no_paired_devices">No paired Bluetooth devices found</string>
     <string name="str_connecting_to">Connecting to %1$s\u2026</string>
+    <string name="str_reconnecting_to">Connection lost. Reconnecting to %1$s\u2026</string>
     <string name="str_select_device">Select device</string>
     <string name="str_error_msg">Error: %1$s</string>
     <string name="str_fetch_error">Fetch error: %1$s</string>
+    <string name="str_connection_lost">Bluetooth connection lost. Please reconnect.</string>
+    <string name="str_unknown_error">Unknown error</string>
     <string name="str_anc_level">ANC: %1$d</string>
 
     <!-- Section headers -->
