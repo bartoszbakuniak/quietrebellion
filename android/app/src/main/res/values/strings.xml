@@ -71,7 +71,8 @@
     <!-- Connection card -->
     <string name="str_multipoint">Multipoint</string>
     <string name="str_switch_audio_source">Switch Audio Source</string>
-    <string name="str_multipoint_hint">The target device must also be actively connected.</string>
+    <string name="str_multipoint_hint">Tap a device to switch. For best results, start playback on that device first.</string>
+    <string name="str_multipoint_hint_unavailable">Switch unavailable. Start playback on the target device, then tap it here immediately — the app retries automatically for ~2 seconds.</string>
     <string name="str_enter_pairing_mode_btn">Enter Pairing Mode</string>
 
     <!-- Dialogs -->

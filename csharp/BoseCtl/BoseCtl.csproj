@@ -12,5 +12,16 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
+  <!-- Size reduction — only active during dotnet publish (PublishSingleFile=true).
+       WinForms does not support IL trimming (NETSDK1175), so PublishTrimmed is omitted.
+       InvariantGlobalization removes ICU/NLS tables (~20 MB).
+       EnableCompressionInSingleFile compresses the bundle (~30% smaller, ~0.2s slower cold start).
+       PublishReadyToRun=false skips AOT pre-compilation (~40 MB saved, JIT warms up in <1s). -->
+  <PropertyGroup Condition="'$(PublishSingleFile)'=='true'">
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
 </Project>
 

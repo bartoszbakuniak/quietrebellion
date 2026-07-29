@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private var favoritesTotalModes = 11
     private var pairedDevices     = mapOf<String, String>()
     private var activeMac: String? = null
+    private var canRoute          = false
     private var autoPlayPause     = false
     private var autoAnswer        = false
 
@@ -394,8 +395,9 @@ class MainActivity : AppCompatActivity() {
 
             try {
                 val (_, mac) = c.source()
-                activeMac   = mac
+                activeMac     = mac
                 pairedDevices = c.pairedDevicesWithNames()
+                canRoute      = if (multipoint) try { c.canRoute() } catch (_: Exception) { false } else false
             } catch (_: Exception) { }
 
             autoPlayPause = try { c.autoPlayPause()   } catch (_: Exception) { false }
@@ -514,13 +516,20 @@ class MainActivity : AppCompatActivity() {
         val activeName = activeMac?.let { pairedDevices[it] ?: shortenMac(it) } ?: "unknown"
         b.tvActiveDevice.text = getString(R.string.str_now_playing, activeName)
 
+        // Show a context-sensitive hint depending on whether routing is currently available
+        b.tvPairedDevicesHint.text = if (canRoute)
+            getString(R.string.str_multipoint_hint)
+        else
+            getString(R.string.str_multipoint_hint_unavailable)
+
         b.rgPairedDevices.removeAllViews()
         others.forEach { mac ->
             val label = pairedDevices[mac] ?: shortenMac(mac)
             val rb = RadioButton(this).apply {
-                id  = View.generateViewId()
-                text = label
-                tag  = mac
+                id       = View.generateViewId()
+                text     = label
+                tag      = mac
+                isEnabled = canRoute   // greyed-out when routing table is empty
             }
             b.rgPairedDevices.addView(rb)
         }

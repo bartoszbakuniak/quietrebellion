@@ -6,6 +6,7 @@ package net.quietrebellion
 
 import android.util.Log
 import java.io.Closeable
+import kotlinx.coroutines.delay
 
 private const val TAG = "BoseCtl"
 
@@ -200,16 +201,39 @@ class BoseConnection(private val transport: BluetoothTransport) : Closeable {
         throwIfError(BmapProtocol.parse(transport.sendRecv(pkt)))
     }
 
+    /**
+     * Returns true when the firmware routing table is populated, i.e. two BT devices are
+     * simultaneously streaming A2DP. Detection: GET on [4.12] returns FuncNotSupp (4) when
+     * the routing table is empty; any other response means routing is available.
+     */
+    suspend fun canRoute(): Boolean {
+        val (fb, fn) = QcUltra2.Routing
+        val pkt  = BmapProtocol.build(fb, fn, Op.GET)
+        val resp = BmapProtocol.parse(transport.sendRecv(pkt)) ?: return false
+        return !(resp.op == Op.ERROR && resp.payload.getOrNull(0) == 4.toByte())
+    }
+
     suspend fun switchToDevice(mac: String) {
         val (fb, fn) = QcUltra2.Routing
-        val pkt = BmapProtocol.build(fb, fn, Op.START, QcUltra2.buildRouting(mac))
-        val resp = BmapProtocol.parse(transport.sendRecv(pkt)) ?: return
-        // FuncNotSupp (4) on [4.12] means the firmware routing table is empty –
-        // the device only registers this function when two BT connections are active simultaneously.
-        // Upgrade path: query connected-device count if a future BMAP version exposes it.
-        if (resp.op == Op.ERROR && resp.payload.getOrNull(0) == 4.toByte())
-            throw BoseProtocolException("Switching requires two active Bluetooth connections (multipoint)")
-        throwIfError(resp)
+        // The firmware routing table is only populated during the brief window when the target
+        // device's A2DP stream starts (before the headphone pauses it). We retry several times
+        // with short delays to catch that window.
+        // User should start playback on the target device and tap Switch at the same time.
+        for (attempt in 0 until 5) {
+            if (attempt > 0) delay(500)
+            val pkt  = BmapProtocol.build(fb, fn, Op.START, QcUltra2.buildRouting(mac))
+            val resp = BmapProtocol.parse(transport.sendRecv(pkt)) ?: return
+            if (resp.op == Op.ERROR && resp.payload.getOrNull(0) == 4.toByte()) {
+                Log.d(TAG, "switchToDevice: attempt $attempt FuncNotSupp – routing table empty, retrying")
+                continue   // routing table not ready yet, try again
+            }
+            throwIfError(resp)
+            Log.d(TAG, "switchToDevice: success on attempt $attempt")
+            return
+        }
+        throw BoseProtocolException(
+            "Switch not available: start playback on the target device and immediately tap Switch, then try again."
+        )
     }
 
     suspend fun setFavorites(favSet: Set<Int>, totalModes: Int = 11) {
