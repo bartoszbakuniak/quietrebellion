@@ -17,7 +17,7 @@
 
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using BoseCtl;
+using QuietRebellion;
 
 // ─── Route: tray vs console ───────────────────────────────────────────────────
 
@@ -149,7 +149,6 @@ static async Task PrintStatusAsync(BoseConnection conn)
     Console.WriteLine($"ANC         : {(audio.AncToggle ? "on" : "off")}");
     Console.WriteLine($"CNC level   : {audio.CncLevel}  (0=max ANC, 10=max ambient)");
     Console.WriteLine($"Wind block  : {(audio.WindBlock ? "on" : "off")}");
-    Console.WriteLine($"Auto CNC    : {(audio.AutoCnc ? "on" : "off")}");
     Console.WriteLine($"Spatial     : {audio.Spatial.ToString().ToLowerInvariant()}");
 
     try

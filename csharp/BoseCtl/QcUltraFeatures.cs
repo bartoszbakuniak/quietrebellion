@@ -13,7 +13,7 @@
  *   Preset mode slots 0-3 reject SETGET with Runtime error (firmware lock)
  */
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 /// <summary>
 /// All known BMAP feature addresses for QC Ultra 2 (wolverine).
@@ -117,12 +117,13 @@ public static class QcUltra2
     // ── Preset Mode Index Map ─────────────────────────────────────────────────
     // Preset slots 0-3 are firmware-locked (SETGET rejected with Runtime error).
     // Custom/editable slots start at index 4.
+    // Names are capitalised to match the Android app (MODE_NAMES).
     public static readonly IReadOnlyDictionary<int, string> ModeNames = new Dictionary<int, string>
     {
-        { 0, "quiet"     },   // Full ANC
-        { 1, "aware"     },   // Transparency / ambient
-        { 2, "immersion" },   // Spatial audio + head tracking
-        { 3, "cinema"    },   // Spatial audio, fixed stage
+        { 0, "Quiet"     },   // Full ANC
+        { 1, "Aware"     },   // Transparency / ambient
+        { 2, "Immersion" },   // Spatial audio + head tracking
+        { 3, "Cinema"    },   // Spatial audio, fixed stage
     };
 
     public static readonly IReadOnlyDictionary<string, int> ModeIndexByName =
@@ -197,14 +198,15 @@ public static class QcUltra2
     /// <summary>
     /// Parse AudioModesSettingsConfig GET [31.10] response (5 bytes).
     /// Returns structured audio settings.
+    /// Note: byte[1] is autoCnc – ignored on read and hardcoded to 0 on write
+    ///       because firmware rejects autoCnc=1 with Runtime error 8 (confirmed by Android port).
     /// </summary>
     public static AudioSettings ParseAudioSettings(byte[] p)
     {
         if (p.Length < 5)
-            return new AudioSettings(0, false, SpatialMode.Off, false, false);
+            return new AudioSettings(0, SpatialMode.Off, false, false);
         return new AudioSettings(
             CncLevel:   p[0],
-            AutoCnc:    p[1] != 0,
             Spatial:    (SpatialMode)p[2],
             WindBlock:  p[3] != 0,
             AncToggle:  p[4] != 0);
@@ -212,10 +214,11 @@ public static class QcUltra2
 
     /// <summary>
     /// Build AudioModesSettingsConfig SETGET [31.10] payload (5 bytes).
+    /// byte[1] (autoCnc) is hardcoded to 0 – firmware rejects 1 with Runtime error 8.
     /// Write with SETGET op – no auth required on QC Ultra 2.
     /// </summary>
     public static byte[] BuildAudioSettings(AudioSettings s) =>
-        new byte[] { (byte)s.CncLevel, (byte)(s.AutoCnc ? 1 : 0), (byte)s.Spatial,
+        new byte[] { (byte)s.CncLevel, 0, (byte)s.Spatial,
                      (byte)(s.WindBlock ? 1 : 0), (byte)(s.AncToggle ? 1 : 0) };
 
     /// <summary>
@@ -376,9 +379,13 @@ public static class QcUltra2
 
 public enum SpatialMode : byte { Off = 0, Room = 1, Head = 2 }
 
+/// <summary>
+/// Audio settings snapshot from BMAP [31.10].
+/// AutoCnc is intentionally omitted: firmware rejects autoCnc=1 with Runtime error 8.
+/// The write path (BuildAudioSettings) always sends 0 for that byte.
+/// </summary>
 public sealed record AudioSettings(
     int CncLevel,
-    bool AutoCnc,
     SpatialMode Spatial,
     bool WindBlock,
     bool AncToggle);

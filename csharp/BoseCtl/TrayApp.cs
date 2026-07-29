@@ -29,7 +29,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 public sealed class TrayApp : ApplicationContext
 {
@@ -46,7 +46,6 @@ public sealed class TrayApp : ApplicationContext
     private bool?   _charging   = null;
     private int     _modeIndex  = -1;
     private int     _cncLevel   = 0;
-    private bool    _autoCnc    = false;
     private bool    _ancOn      = false;
     private bool    _windBlock  = false;
     private SpatialMode _spatial   = SpatialMode.Off;
@@ -160,7 +159,6 @@ public sealed class TrayApp : ApplicationContext
         _modeIndex  = await _conn.ModeIndexAsync();
         var audio   = await _conn.AudioSettingsAsync();
         _ancOn      = audio.AncToggle;
-        _autoCnc    = audio.AutoCnc;
         _cncLevel   = audio.CncLevel;
         _windBlock  = audio.WindBlock;
         _spatial    = audio.Spatial;
@@ -350,31 +348,19 @@ public sealed class TrayApp : ApplicationContext
 
     private ToolStripMenuItem CncMenu()
     {
-        string label = _autoCnc ? $"CNC Level:  Auto" : $"CNC Level:  {_cncLevel}";
+        string label = $"CNC Level:  {_cncLevel}";
         var parent = new ToolStripMenuItem(label);
-
-        // Auto-CNC toggle at top
-        bool autoCur = _autoCnc;
-        var autoItem = new ToolStripMenuItem((autoCur ? "✓  " : "     ") + "Auto (device-managed)");
-        autoItem.Click += async (_, _) => await SendCmdAsync(async () =>
-        {
-            await _conn!.SetAutoCncAsync(!_autoCnc);
-            _autoCnc = !_autoCnc;
-        });
-        parent.DropDownItems.Add(autoItem);
-        parent.DropDownItems.Add(new ToolStripSeparator());
 
         for (int lvl = 0; lvl <= 10; lvl++)
         {
             string suffix = lvl == 0 ? "  (max ANC)" : lvl == 10 ? "  (max aware)" : "";
-            bool cur = !_autoCnc && lvl == _cncLevel;
+            bool cur = lvl == _cncLevel;
             var  item = new ToolStripMenuItem((cur ? "✓  " : "     ") + lvl + suffix);
             int  cl   = lvl;
             item.Click += async (_, _) => await SendCmdAsync(async () =>
             {
                 await _conn!.SetCncLevelAsync(cl);
                 _cncLevel = cl;
-                _autoCnc  = false;
             });
             parent.DropDownItems.Add(item);
         }

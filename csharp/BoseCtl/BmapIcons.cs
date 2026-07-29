@@ -13,7 +13,7 @@
 using System.Drawing;
 using System.Runtime.InteropServices;
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 public static class BmapIcons
 {

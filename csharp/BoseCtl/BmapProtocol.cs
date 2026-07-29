@@ -25,7 +25,7 @@
  *   7 PROCESSING Async operation in progress
  */
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 /// <summary>BMAP operator codes (low nibble of the flags byte).</summary>
 public static class Op

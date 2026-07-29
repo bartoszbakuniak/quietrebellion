@@ -16,7 +16,7 @@ using Windows.Devices.Bluetooth.Rfcomm;
 using Windows.Networking.Sockets;
 using Windows.Storage.Streams;
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 public sealed class RfcommTransport : IAsyncDisposable
 {

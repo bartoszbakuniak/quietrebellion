@@ -9,7 +9,7 @@
  * the static factory to select the right one.
  */
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 public sealed class BoseConnection : IAsyncDisposable
 {
@@ -344,7 +344,6 @@ public sealed class BoseConnection : IAsyncDisposable
     /// <summary>
     /// Set noise cancellation level 0–10.
     /// Reads current audio settings and writes back with the overridden CNC level.
-    /// Forces AutoCnc=false so the explicit level is not ignored by the firmware.
     /// bmap: GET [31.10] then SETGET [31.10] with new payload.
     /// </summary>
     public async Task SetCncLevelAsync(int level)
@@ -352,8 +351,7 @@ public sealed class BoseConnection : IAsyncDisposable
         if (level is < 0 or > 10)
             throw new ArgumentOutOfRangeException(nameof(level), "CNC level must be 0–10");
         var s = await AudioSettingsAsync();
-        // AutoCnc=true → firmware ignores explicit level; must clear it first.
-        await WriteAudioSettingsAsync(s with { CncLevel = level, AutoCnc = false });
+        await WriteAudioSettingsAsync(s with { CncLevel = level });
     }
 
     /// <summary>
@@ -366,15 +364,6 @@ public sealed class BoseConnection : IAsyncDisposable
         await WriteAudioSettingsAsync(s with { AncToggle = enabled });
     }
 
-    /// <summary>
-    /// Toggle Auto-CNC (device-managed noise control level) on or off.
-    /// bmap: GET [31.10] then SETGET [31.10].
-    /// </summary>
-    public async Task SetAutoCncAsync(bool enabled)
-    {
-        var s = await AudioSettingsAsync();
-        await WriteAudioSettingsAsync(s with { AutoCnc = enabled });
-    }
 
     /// <summary>
     /// Charging state: true=charging, false=not charging, null=unknown.

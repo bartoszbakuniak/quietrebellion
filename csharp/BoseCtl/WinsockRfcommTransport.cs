@@ -27,7 +27,7 @@
 using System.Runtime.InteropServices;
 using System.Net.Sockets;
 
-namespace BoseCtl;
+namespace QuietRebellion;
 
 public sealed class WinsockRfcommTransport : IAsyncDisposable
 {

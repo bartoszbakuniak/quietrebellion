@@ -1,4 +1,4 @@
-# bosectl – Windows C# Prototype
+# Quiet Rebellion – Windows App
 
 > ⚠️ **Pre-alpha.** Tray app and CLI run on QC Ultra 2 (wolverine), but this
 > is early-stage code: no installer, no auto-start, no persistent settings,
@@ -6,7 +6,7 @@
 > The Python CLI is the stable reference implementation — use this if you
 > want native Windows integration and are OK with rough edges.
 
-Native Windows console tool for controlling **Bose QC Ultra Headphones** over
+Native Windows tray app and CLI for controlling **Bose QC Ultra Headphones** over
 Bluetooth without the official Bose app.  
 Communicates directly via the BMAP (Bose Messaging and Protocol) over RFCOMM.
 
@@ -17,7 +17,7 @@ Communicates directly via the BMAP (Bose Messaging and Protocol) over RFCOMM.
 | Requirement | Details |
 |---|---|
 | OS | Windows 10 (2004 / 19041) or Windows 11 |
-| .NET SDK | 7.0 or newer ([download](https://dotnet.microsoft.com/download)) |
+| .NET SDK | 10.0 or newer ([download](https://dotnet.microsoft.com/download/dotnet/10.0)) |
 | Bluetooth | Device must be **paired and connected** via Windows Bluetooth settings |
 | No Bose app | The official Bose app must **not** be open (it holds the RFCOMM channel) |
 
@@ -38,7 +38,7 @@ dotnet run
 Or build a self-contained portable .exe (no .NET install needed):
 ```powershell
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-# Output: bin\Release\net7.0-windows10.0.19041.0\win-x64\publish\bosectl.exe
+# Output: bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\bosectl.exe
 ```
 
 ---
@@ -66,11 +66,10 @@ Connected (RFCOMM/BMAP).
 Device      : Bose QC Ultra Headphones
 Firmware    : 8.2.20+g34cf029
 Battery     : 87 %
-Mode        : aware
+Mode        : Aware
 ANC         : on
 CNC level   : 5  (0=max ANC, 10=max ambient)
 Wind block  : off
-Auto CNC    : off
 Spatial     : off
 EQ          :
               Bass      +0 dB  (range -10…+10)
