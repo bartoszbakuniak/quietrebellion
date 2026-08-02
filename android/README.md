@@ -36,7 +36,7 @@ and without root.
 - Android 8.0+ (API 26)
 - Bose QC Ultra Headphones (2nd Gen, codename `wolverine`, Product-ID `0x4082`)
 - Headphones already paired via Android Bluetooth settings
-- **JDK 17+** to build (AGP 8.5 requires JDK 11+, compileOptions target JVM 17)
+- **JDK 17+** to build (AGP 8.7 requires JDK 17+, compileOptions target JVM 17)
 
 ## Build
 
