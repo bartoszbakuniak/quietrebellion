@@ -1,114 +1,103 @@
-name: Build & Release (Android)
-
-on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'android-v*'
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: "21"
-          distribution: temurin
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android build components
+      - name: Determine release version
+        shell: bash
         run: |
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;34.0.0" \
-            "ndk;26.1.10909125" \
-            "cmake;3.22.1"
+          set -euo pipefail
 
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
+          VERSION_CODE="$(
+            sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' \
+              android/app/build.gradle.kts |
+            head -n 1
+          )"
 
-      - name: Decode signing key
-        run: |
-          echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > android/app/release.jks
+          if [ -z "$VERSION_CODE" ]; then
+            echo "::error::Could not determine versionCode from android/app/build.gradle.kts"
+            exit 1
+          fi
 
-      - name: Build Release APK
-        working-directory: android
-        env:
-          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :app:assembleRelease
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            VERSION="${GITHUB_REF_NAME#android-v}"
+          else
+            VERSION="0.${VERSION_CODE}"
+          fi
 
-      - name: Show release APKs
-        run: |
-          ls -la android/app/build/outputs/apk/release
-          $ANDROID_HOME/build-tools/34.0.0/apksigner verify --print-certs android/app/build/outputs/apk/release/*.apk || true
-
-      - name: Rename APK
-        run: |
-          VERSION="${GITHUB_REF_NAME#android-v}"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-          APK="$(find android/app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)"
+          echo "Version code: $VERSION_CODE"
+          echo "Version: $VERSION"
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="$(
+            find android/app/build/outputs/apk/release \
+              -type f \
+              -name "*.apk" \
+              -print \
+              -quit
+          )"
+
+          if [ -z "$APK" ]; then
+            echo "::error::No release APK found"
+            exit 1
+          fi
+
           mv "$APK" "quietrebellion-${VERSION}.apk"
 
       - name: Assemble release notes from fastlane changelogs
+        shell: bash
         run: |
-          VERSION_CODE="$(grep -oP 'versionCode\s*=\s*\K[0-9]+' android/app/build.gradle.kts)"
+          set -euo pipefail
+
           CHANGELOG_DIR="fastlane/metadata/android/en-US/changelogs"
+          HEADER_FILE=".github/release-notes-header.md"
+          FOOTER_FILE=".github/release-notes-footer.md"
+          OUTPUT_FILE="release-notes-generated.md"
           CURRENT_CHANGELOG="${CHANGELOG_DIR}/${VERSION_CODE}.txt"
+
+          if [ ! -f "$HEADER_FILE" ]; then
+            echo "::error::Release notes header not found: $HEADER_FILE"
+            exit 1
+          fi
+
+          if [ ! -f "$FOOTER_FILE" ]; then
+            echo "::error::Release notes footer not found: $FOOTER_FILE"
+            exit 1
+          fi
+
           if [ ! -f "$CURRENT_CHANGELOG" ]; then
-            echo "::error::No fastlane changelog found at $CURRENT_CHANGELOG for versionCode $VERSION_CODE"
+            echo "::error::No fastlane changelog found at ${CURRENT_CHANGELOG}"
+            echo "::error::Expected a changelog for versionCode ${VERSION_CODE}"
+            echo "Available changelogs:"
+            find "$CHANGELOG_DIR" -maxdepth 1 -type f -name "*.txt" -print || true
             exit 1
           fi
 
           {
-            cat .github/release-notes-header.md
+            cat "$HEADER_FILE"
             echo
 
-            # Cumulative history, newest first: one "### What's new in 0.N" section
-            # per fastlane changelog file, sourced from the same files used for
-            # F-Droid/Play Store listings (single source of truth).
-            for vc in $(seq "$VERSION_CODE" -1 1); do
-              f="${CHANGELOG_DIR}/${vc}.txt"
-              if [ -f "$f" ]; then
-                if [ "$vc" = "$VERSION_CODE" ]; then
-                  label="$VERSION"
+            for ((vc = VERSION_CODE; vc >= 1; vc--)); do
+              CHANGELOG_FILE="${CHANGELOG_DIR}/${vc}.txt"
+
+              if [ -f "$CHANGELOG_FILE" ]; then
+                if [ "$vc" -eq "$VERSION_CODE" ]; then
+                  CHANGELOG_VERSION="$VERSION"
                 else
-                  label="0.${vc}"
+                  CHANGELOG_VERSION="0.${vc}"
                 fi
-                echo "### What's new in ${label}"
+
+                echo "### What's new in ${CHANGELOG_VERSION}"
                 echo
-                cat "$f"
+                cat "$CHANGELOG_FILE"
                 echo
               fi
             done
 
-            cat .github/release-notes-footer.md
-          } > release-notes-generated.md
+            cat "$FOOTER_FILE"
+          } > "$OUTPUT_FILE"
 
-      - name: Upload to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Android v${{ env.VERSION }}
-          tag_name: ${{ github.ref_name }}
-          body_path: release-notes-generated.md
-          files: quietrebellion-${{ env.VERSION }}.apk
-
-      - name: Print F-Droid metadata values
-        run: |
-          echo "Commit: $GITHUB_SHA"
-          echo "Tag: $GITHUB_REF_NAME"
-          echo "Version: ${{ env.VERSION }}"
-          echo "APK: https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/quietrebellion-${{ env.VERSION }}.apk"
+          echo "Generated release notes:"
+          cat "$OUTPUT_FILE"
