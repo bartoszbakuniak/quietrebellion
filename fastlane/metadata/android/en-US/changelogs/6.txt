@@ -1,7 +1,4 @@
-New in 0.6:
 - Switch Audio Source: buttons are now greyed out when routing is unavailable, with a clear hint.
 - Switch retry logic: the app automatically retries the switch command for ~2 seconds to catch the brief window when both BT streams are active.
 - Improved error messages for Multipoint audio source switching.
-
-
 

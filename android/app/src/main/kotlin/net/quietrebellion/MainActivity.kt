@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity() {
     private var canRoute          = false
     private var autoPlayPause     = false
     private var autoAnswer        = false
+    private var sidetonePersistent = true
 
     // populateModes: skip rebuild when modes+favorites haven't changed
     private var lastModeNamesForRadio: Map<Int, String> = emptyMap()
@@ -101,6 +102,9 @@ class MainActivity : AppCompatActivity() {
     // ── Permission launcher ───────────────────────────────────────────────────
     private var pollJob: Job? = null
     private var reconnectJob: Job? = null
+    private var routeProbeJob: Job? = null
+    private var sourceSwitchInFlight = false
+    private var lastSourceSwitchAtMs = 0L
     private var autoReconnectSuppressed = false
     private var autoReconnectTriggeredForDrop = false
     private val permLauncher = registerForActivityResult(
@@ -130,6 +134,7 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         pollJob?.cancel(); pollJob = null
         reconnectJob?.cancel(); reconnectJob = null
+        routeProbeJob?.cancel(); routeProbeJob = null
         boseService?.clientBound = false
         // Unbind but keep service running in background
         try { unbindService(serviceConn) } catch (_: Exception) {}
@@ -285,6 +290,7 @@ class MainActivity : AppCompatActivity() {
             root.addView(row)
         }
 
+
         sheet.setContentView(root)
         sheet.show()
     }
@@ -402,6 +408,7 @@ class MainActivity : AppCompatActivity() {
 
             autoPlayPause = try { c.autoPlayPause()   } catch (_: Exception) { false }
             autoAnswer    = try { c.autoAnswer()      } catch (_: Exception) { false }
+            sidetonePersistent = try { c.sidetonePersistent() } catch (_: Exception) { true }
 
             // Attach to service so it keeps running in background
             boseService?.attach(c, deviceName, battery, currentModeIndex,
@@ -431,6 +438,7 @@ class MainActivity : AppCompatActivity() {
             applyPairedDevices()
             b.swAutoPlayPause.isChecked = autoPlayPause
             b.swAutoAnswer.isChecked = autoAnswer
+            b.swSidetonePersistent.isChecked = sidetonePersistent
             applyNowPlaying()        } finally {
             updatingUi = false
         }
@@ -529,7 +537,9 @@ class MainActivity : AppCompatActivity() {
                 id       = View.generateViewId()
                 text     = label
                 tag      = mac
-                isEnabled = canRoute   // greyed-out when routing table is empty
+                // Keep tap enabled so user can still hit the short routing window; retry logic runs in BoseConnection.
+                isEnabled = true
+                alpha = if (canRoute) 1.0f else 0.65f
             }
             b.rgPairedDevices.addView(rb)
         }
@@ -643,19 +653,29 @@ class MainActivity : AppCompatActivity() {
 
         b.swMultipoint.setOnCheckedChangeListener { _, checked ->
             if (updatingUi) return@setOnCheckedChangeListener
-            sendCmdFast {
-                conn!!.setMultipoint(checked)
-                multipoint = checked
-                applyPairedDevices()
-            }
+            sendMultipointToggle(checked)
         }
 
         b.rgPairedDevices.setOnCheckedChangeListener { group, checkedId ->
             if (updatingUi) return@setOnCheckedChangeListener
+            val now = System.currentTimeMillis()
+            if (sourceSwitchInFlight || now - lastSourceSwitchAtMs < 400L) {
+                setStatus(getString(R.string.str_switch_in_progress))
+                return@setOnCheckedChangeListener
+            }
             val mac = group.findViewById<RadioButton>(checkedId)?.tag as? String ?: return@setOnCheckedChangeListener
+            sourceSwitchInFlight = true
+            lastSourceSwitchAtMs = now
+            startRouteAvailabilityProbe()
             sendCmd {
-                conn!!.switchToDevice(mac)
-                activeMac = try { conn!!.source().second ?: mac } catch (_: Exception) { mac }
+                try {
+                    conn!!.switchToDevice(mac)
+                    activeMac = try { conn!!.source().second ?: mac } catch (_: Exception) { mac }
+                    startRouteAvailabilityProbe(windowMs = 6_000L)
+                } finally {
+                    sourceSwitchInFlight = false
+                    lastSourceSwitchAtMs = System.currentTimeMillis()
+                }
             }
         }
 
@@ -685,6 +705,10 @@ class MainActivity : AppCompatActivity() {
             if (updatingUi) return@setOnCheckedChangeListener
             sendCmdFast { conn!!.setAutoAnswer(checked); autoAnswer = checked }
         }
+        b.swSidetonePersistent.setOnCheckedChangeListener { _, checked ->
+            if (updatingUi) return@setOnCheckedChangeListener
+            sendCmdFast { conn!!.setSidetonePersistent(checked); sidetonePersistent = checked }
+        }
 
         // Pairing mode
         b.btnPairingMode.setOnClickListener {
@@ -703,6 +727,69 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Multipoint toggles can briefly drop RFCOMM; treat disconnect as expected and reconnect quietly. */
+    private fun sendMultipointToggle(enabled: Boolean) {
+        if (conn == null) { Toast.makeText(this, getString(R.string.notif_title_disconnected), Toast.LENGTH_SHORT).show(); return }
+        lifecycleScope.launch {
+            try {
+                conn!!.setMultipoint(enabled)
+                multipoint = enabled
+                if (!enabled) canRoute = false
+                applyPairedDevices()
+                startRouteAvailabilityProbe(windowMs = 10_000L)
+                // Give firmware a short settle window before the full state pull.
+                delay(600)
+                fetchAndRefresh()
+            } catch (e: Exception) {
+                if (isDisconnectedError(e)) {
+                    boseService?.detach()
+                    setStatus(getString(R.string.str_reconnecting_after_multipoint))
+                    scheduleConservativeReconnect(e)
+                    return@launch
+                }
+                Toast.makeText(this@MainActivity, userFacingErrorMessage(e), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** Short high-frequency probe so Switch UI follows the brief firmware routing window. */
+    private fun startRouteAvailabilityProbe(windowMs: Long = 8_000L, intervalMs: Long = 1_000L) {
+        routeProbeJob?.cancel()
+        if (!multipoint || intervalMs <= 0L) {
+            canRoute = false
+            applyPairedDevices()
+            return
+        }
+        routeProbeJob = lifecycleScope.launch {
+            val iterations = (windowMs / intervalMs).toInt().coerceAtLeast(1)
+            var lastCanRoute = canRoute
+            var lastActiveMac = activeMac
+            repeat(iterations) {
+                val c = conn ?: return@launch
+                try {
+                    val nextCanRoute = c.canRoute()
+                    var nextActiveMac = activeMac
+                    if (nextCanRoute) {
+                        val (_, mac) = c.source()
+                        nextActiveMac = mac
+                    }
+                    val changed = nextCanRoute != lastCanRoute || nextActiveMac != lastActiveMac
+                    canRoute = nextCanRoute
+                    activeMac = nextActiveMac
+                    if (changed) {
+                        applyPairedDevices()
+                        applyNowPlaying()
+                        lastCanRoute = nextCanRoute
+                        lastActiveMac = nextActiveMac
+                    }
+                } catch (_: Exception) {
+                    // Best-effort probe only: keep current UI state on transient errors.
+                }
+                delay(intervalMs)
+            }
+        }
+    }
 
     private fun isDisconnectedError(error: Throwable): Boolean {
         var current: Throwable? = error

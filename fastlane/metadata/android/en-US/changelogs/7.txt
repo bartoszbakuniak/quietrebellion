@@ -1,0 +1,11 @@
+✨ New
+- Self Voice Persistence toggle: control whether sidetone behavior persists across context changes (experimental).
+
+🔧 Improvements
+- Audio Source switch buttons stay tappable at all times; unavailable devices are dimmed instead of disabled, so the brief routing window isn't missed.
+- Faster detection of when Audio Source switching becomes available again after a Multipoint or source-switch action.
+- Added a tap-cooldown to prevent duplicate Audio Source switch commands from rapid taps.
+
+✅ Fixes
+- Multipoint toggle no longer shows an error when the device disconnects as part of applying the setting; the app now reconnects quietly instead.
+

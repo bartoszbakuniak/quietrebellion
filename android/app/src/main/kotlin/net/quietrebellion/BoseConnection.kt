@@ -63,6 +63,11 @@ class BoseConnection(private val transport: BluetoothTransport) : Closeable {
         return QcUltra2.parseSidetone(get(fb, fn).payload)
     }
 
+    suspend fun sidetonePersistent(): Boolean {
+        val (fb, fn) = QcUltra2.Sidetone
+        return QcUltra2.parseSidetonePersistence(get(fb, fn).payload)
+    }
+
     suspend fun multipoint(): Boolean {
         val (fb, fn) = QcUltra2.Multipoint
         return QcUltra2.parseMultipoint(get(fb, fn).payload)
@@ -156,9 +161,13 @@ class BoseConnection(private val transport: BluetoothTransport) : Closeable {
         catch (_: Exception) { }
     }
 
-    suspend fun setModeByIndex(index: Int) {
+    suspend fun setModeByIndex(index: Int, announce: Boolean = false) {
         val (fb, fn) = QcUltra2.CurrentMode
-        val pkt = BmapProtocol.build(fb, fn, Op.START, byteArrayOf(index.toByte(), 0))
+        // Second payload byte: voice-prompt announcement of the new mode, observed in official
+        // app traffic. Confirmed non-functional on current wolverine firmware (no audible effect) —
+        // kept as a documented no-op rather than silently dropped, in case a future firmware or
+        // other device honors it. No UI exposes this; always called with announce=false for now.
+        val pkt = BmapProtocol.build(fb, fn, Op.START, byteArrayOf(index.toByte(), if (announce) 1 else 0))
         throwIfError(BmapProtocol.parse(transport.sendRecv(pkt)))
     }
 
@@ -178,7 +187,17 @@ class BoseConnection(private val transport: BluetoothTransport) : Closeable {
 
     suspend fun setSidetone(level: Int) {
         val (fb, fn) = QcUltra2.Sidetone
-        val pkt = BmapProtocol.build(fb, fn, Op.SETGET, QcUltra2.buildSidetone(level))
+        // Preserve persistence flag when user changes only the level.
+        val persistent = try { sidetonePersistent() } catch (_: Exception) { true }
+        val pkt = BmapProtocol.build(fb, fn, Op.SETGET, QcUltra2.buildSidetone(level, persistent))
+        throwIfError(BmapProtocol.parse(transport.sendRecv(pkt)))
+    }
+
+    suspend fun setSidetonePersistent(enabled: Boolean) {
+        val (fb, fn) = QcUltra2.Sidetone
+        // Preserve level when user changes only persistence.
+        val level = try { sidetone() } catch (_: Exception) { 0 }
+        val pkt = BmapProtocol.build(fb, fn, Op.SETGET, QcUltra2.buildSidetone(level, enabled))
         throwIfError(BmapProtocol.parse(transport.sendRecv(pkt)))
     }
 

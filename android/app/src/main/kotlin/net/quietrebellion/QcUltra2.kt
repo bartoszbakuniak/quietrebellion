@@ -106,6 +106,9 @@ object QcUltra2 {
 
     fun parseSidetone(p: ByteArray): Int = if (p.size >= 2) p[1].toInt() and 0xFF else 0
 
+    // [1.11] payload: [persist, level]
+    fun parseSidetonePersistence(p: ByteArray): Boolean = p.isNotEmpty() && p[0] != 0.toByte()
+
     fun parseMultipoint(p: ByteArray): Boolean = p.isNotEmpty() && (p[0].toInt() and 0x02) != 0
 
     fun parseModeConfigBasic(p: ByteArray): Pair<Int, String>? {
@@ -152,7 +155,8 @@ object QcUltra2 {
 
     // ── Builders ─────────────────────────────────────────────────────────────
 
-    fun buildSidetone(level: Int): ByteArray = byteArrayOf(1, level.toByte())
+    fun buildSidetone(level: Int, persistent: Boolean = true): ByteArray =
+        byteArrayOf(if (persistent) 1 else 0, level.toByte())
     fun buildToggle(enabled: Boolean): ByteArray = byteArrayOf(if (enabled) 1 else 0)
     fun buildEqBand(value: Int, bandId: Int): ByteArray = byteArrayOf((value and 0xFF).toByte(), bandId.toByte())
     fun buildDeviceName(name: String): ByteArray = name.toByteArray(Charsets.UTF_8)

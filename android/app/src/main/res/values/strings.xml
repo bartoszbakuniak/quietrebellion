@@ -21,6 +21,7 @@
     <string name="str_no_paired_devices">No paired Bluetooth devices found</string>
     <string name="str_connecting_to">Connecting to %1$s\u2026</string>
     <string name="str_reconnecting_to">Connection lost. Reconnecting to %1$s\u2026</string>
+    <string name="str_reconnecting_after_multipoint">Applying Multipoint setting. Reconnecting\u2026</string>
     <string name="str_select_device">Select device</string>
     <string name="str_error_msg">Error: %1$s</string>
     <string name="str_fetch_error">Fetch error: %1$s</string>
@@ -57,6 +58,8 @@
     <string name="str_auto_play_pause_desc">Pause when headphones removed</string>
     <string name="str_auto_answer">Auto Answer</string>
     <string name="str_auto_answer_desc">Answer calls automatically</string>
+    <string name="str_self_voice_persistence">Self Voice Persistence</string>
+    <string name="str_self_voice_persistence_desc">Keep sidetone behavior persistent across context changes (experimental)</string>
 
     <!-- Equalizer -->
     <string name="str_eq_bass">Bass</string>
@@ -71,6 +74,7 @@
     <!-- Connection card -->
     <string name="str_multipoint">Multipoint</string>
     <string name="str_switch_audio_source">Switch Audio Source</string>
+    <string name="str_switch_in_progress">Switch in progress\u2026</string>
     <string name="str_multipoint_hint">Tap a device to switch. For best results, start playback on that device first.</string>
     <string name="str_multipoint_hint_unavailable">Switch unavailable. Start playback on the target device, then tap it here immediately — the app retries automatically for ~2 seconds.</string>
     <string name="str_enter_pairing_mode_btn">Enter Pairing Mode</string>

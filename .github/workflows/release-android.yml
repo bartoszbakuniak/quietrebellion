@@ -62,13 +62,48 @@ jobs:
           APK="$(find android/app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)"
           mv "$APK" "quietrebellion-${VERSION}.apk"
 
+      - name: Assemble release notes from fastlane changelogs
+        run: |
+          VERSION_CODE="$(grep -oP 'versionCode\s*=\s*\K[0-9]+' android/app/build.gradle.kts)"
+          CHANGELOG_DIR="fastlane/metadata/android/en-US/changelogs"
+          CURRENT_CHANGELOG="${CHANGELOG_DIR}/${VERSION_CODE}.txt"
+          if [ ! -f "$CURRENT_CHANGELOG" ]; then
+            echo "::error::No fastlane changelog found at $CURRENT_CHANGELOG for versionCode $VERSION_CODE"
+            exit 1
+          fi
+
+          {
+            cat .github/release-notes-header.md
+            echo
+
+            # Cumulative history, newest first: one "### What's new in 0.N" section
+            # per fastlane changelog file, sourced from the same files used for
+            # F-Droid/Play Store listings (single source of truth).
+            for vc in $(seq "$VERSION_CODE" -1 1); do
+              f="${CHANGELOG_DIR}/${vc}.txt"
+              if [ -f "$f" ]; then
+                if [ "$vc" = "$VERSION_CODE" ]; then
+                  label="$VERSION"
+                else
+                  label="0.${vc}"
+                fi
+                echo "### What's new in ${label}"
+                echo
+                cat "$f"
+                echo
+              fi
+            done
+
+            cat .github/release-notes-footer.md
+          } > release-notes-generated.md
+
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: Android v${{ env.VERSION }}
           tag_name: ${{ github.ref_name }}
-          body_path: .github/release-notes.md
+          body_path: release-notes-generated.md
           files: quietrebellion-${{ env.VERSION }}.apk
 
       - name: Print F-Droid metadata values
