@@ -10,6 +10,9 @@
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4.svg)](csharp/)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://kernel.org)
 
+*I archived the repository because I returned my Bose headphones. 
+I couldn't justify spending that much money on a manufacturer that treats its customers so carelessly when it comes to the software.*
+
 **Control Bose headphones from Linux, Android, or Windows — no app, no cloud, no account.**
 
 > **CLI and library also known as `bosectl`** (upstream project name).
